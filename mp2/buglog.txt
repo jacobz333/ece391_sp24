@@ -1,0 +1,36 @@
+
+MP 2.1:
+    1. every 4th row displays blue color
+        fixed by using SCROLL_X_WIDTH instead of SCROLL_X_DIM
+        due to incorrect indexing for accesses on the build buffer
+
+    2. black line appears between scrolling region and status bar
+        fixed by setting maximum scanline register to 363=0x16B instead of 364=0x16C
+        likely due to some issue with where the display addresses began or VGA skipping a line?
+
+    3. status bar only updates when moving
+        fixed by creating a show status function separate from show screen
+        show_screen is only called when the player moves, we need to update the status bar independent of when we update the screen (for the timer)
+
+    4. fruit is does not disappear when collected
+        fixed by drawing the player (and BG) on every game state and upon movement
+        on every game update, we need to erase the fruit underneath the player
+        on every movement, we need to also erase old player pixels
+
+MP 2.2:
+    1. wrong segments turn on in hex displays
+        DP bit was incorrectly set to 5 rather than 4
+    2. reset button turns on the wrong hex segments
+        did not offset send buffer properly
+    3. can only set 4 hex displays at once
+        must change number of bytes sent depending on LED mask
+    4. buttons don't respond after initialization and setting LEDs
+        forgot to change set button interrupt generation helper to not use tux_info struct
+    5. screen flickers in mazegame
+        did not remove printk's in tux driver. printk's seemingly show and conflict with the current screen despite being in graphics mode
+    6. wall and status bar color cycle was stuck at black
+        incorrectly masked 0xF rather than 0x7 for the color cycle index
+    7. text appears garbled on the screen
+        incorrectly indexed the output of text to graphics function. forgot these were using planes rather than row-major order
+    8. text was not cut off on the left side of the screen
+        did not account for x_left offset and thus indexing the mask incorrectly

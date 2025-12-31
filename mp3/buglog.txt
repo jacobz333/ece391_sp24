@@ -1,0 +1,124 @@
+Checkpoint 1
+-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
+-GDT bootlooping(gdt wrong)
+Didnt use LGDT. Attempt to use x86 commands to manually input it in.
+-IDT(General Protection fault test)intr.c(populateIDT)
+Launch tests would throw IDT fault. This was caused by not initializing IDT entries as IA32 manual said that they were
+reserved. Changed them appropriately
+-RTC(General Protection) i8259.c:41,42
+RTC would fire a couple interrupts before entering a general protection fault. This was found to be caused by
+all IRQs being enabled on the finishing of the ICW despite masking initially. Which generated a GP fault as those 
+entries weren't initalized thus derefrencing null. Line numbers above are added tomask out all interrupts after 
+initialization.
+
+-RTC(not firing) i8259.c:61
+RTC would not fire. This was caused by not unmasking the slave pic connection on the master pic. Thus all slavei
+interrupts would be ignored thus no rtcs are sent.
+
+-Keyboard(shift and caps not working), keyboard.c:28, keyboard.c:16
+
+Line deleted but originally there was a line that prevented release keys from affecting keyboard output
+this was removed due to it ignoring shift release
+
+keyboard.c:28: Comparison would always be wrong due to me using capslock and shift flags that are
+one hot encoded. The fix was to right shift the flags so that the bit comparisons would be equal
+
+keyboard.c:16: Shifting would not work. This was found to be a typo of 0x10 instead of 0x02
+
+-Keyboard(spamming) rtc.c(RTCHandler)
+Printing the keycode used to be in the rtc handler. Modelled after mp2 keyboard handler. This was
+ fixed by only printing on keyboard interrupts
+
+-Paging crashing(alignment, directory and tables) x86_desc.S:130
+Kernel would crash upon paging initialization. This was found to be caused by the 
+page directory not being aligned to megabytes. Fixed by doing .align 4096
+
+-Stuck at paging(video memory issues) x86_desc:486
+Terminal would be cutoff after initialize paging printf statement. This was found to be 
+caused by improper masking of the video memory page table address. Resulting video memory
+to be lost in mapping. Fixed by fixing the masking to generate PTE
+
+Checkpoint 2
+-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
+-Buffer spitting out junk values fsys.c:65
+After read_data, the terminal write for the buffer would spit out junk values.
+This was found to be a indexing issue as the input size is considered to be too 
+large. This makes the function return with no write to the buffer thus generating 
+junk outputs. This was fixed by replacing the comparison to without the equals
+
+-Terminal writes in a vertical line on the right side after ctrl + l clear: lib.c:243
+This was caused by the edge case where bottom of the terminal new lines wouldnt reset the 
+screen_x to 0. Thus until the screen_y reached the bottom the screen_x wouldnt reset. Fixed
+by adding screen_x = 0 on all new lines. 
+
+-Terminal newlines before filling row: lib.c:256
+Switched NUM_ROWs and NUM COLS for the new line generation. Fixed by swapping the values
+
+-Page Fault fsys.c: initfsys(start_addr), kernel.c:63
+Caused by hard coding the file base pointer. Didnt realize that the pointer would change on
+every boot and we were just lucky the few times we loaded the os. This was changed by adding
+fsys init which would initialize the file base pointer based on the multiboot struct in the 
+kernel.
+
+-Testing RTC (incredibly fast interrupt rate update) kernel.c:189 while loop
+This was caused by the RTC updating faster than the while loop. The while contained
+a conditional stating that every 100 rtc interrupts the speed would increase 
+exponentially. This did not work as the while loop fires way faster than the rtc.
+Meaning that when rtc hits 100 the while loop fires on that conditional rapidly causing
+the interrupt speed to increase quickly. NOT FIXED
+
+-4Kbs initialized on stack, fsys.c:85
+Accidentally initialized inode object(takes up a whole block) as a local variable. 
+Potentially can cause stack over flow later on. Fixed with an initialization to point
+to an existing inode struct.
+
+-weird enter shit going()
+
+-page faulting caused by clobbering eax
+
+Checkpoint 3
+-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
+-inccorect return values from terminal read cause nothing to be written back into terminal
+Terminal_read originally returns a 0 because we thought it would indicate a successful read. It apprently returns the number of chars read and adds the new line that 
+causes the read termination at the end. Also another issue with the terminal is that the keyboard buffer sometimes isnt flushed out meaning that there characters from 
+the previous read that are being preserved which causes incorrect reads 
+
+-misuse of terminal read input buffer argument
+
+-page fault via zero access in when loading fds onto the file descriptor
+
+-page fault on base shell exit:
+When we at the base shell and exit, the kernel page faults entirely. This is because we set ESP0 to 8KB intervals. Thus, when we execute shell from entry, we set ESP0 to 8MB and set the saved EBP to the execute C function within entry.
+When we halt shell, we return to 8MB and overwrite existing the stack for entry and the stack frame for the execute C function (that was used to execute shell in the first place).
+Halt will use the saved EBP to return back to a nonexistent stack frame for the initial execute C function.
+
+-Kernel broken after simplifying file_desc accesses, syscall.c:all instances of file_desc_t file_desc
+Since we access the file descriptor in the current_PCB a lot we decided to make the naming simpler instead of running a derefernce every time we do so. However
+this resulted in a lot of page faults. The origin of the issue came from the fact that we were editing a local variablle that was a copy of the file descriptor array
+rather than the original array itself. Thus we werent making fd array changes and writing nothing to the pcb
+
+Checkpoint 4
+-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
+-consecutive executions of sigtest generates cascading page faults
+execute-halt relationship does not properly recover TSS.ESP0. consecutive executes of programs increments ESP as a result.
+parent_esp0 was incorrectly set to the esp of execute C function, so whenever shell attempted to execute, this parent_esp0 is set to skip a portion of the stack.
+fixed by saving parent_esp0 as the current tss.esp0 before it is overwritten.
+
+Checkpoint 5
+-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
+-frame0.txt was able to execute
+magic ELF string to compare against in execute was not capitalized
+string comparison conditional was incorrected flipped
+the combination of these two errors allowed any file to be executed on
+
+-Random Page faults page_asm.S flush_tlb()
+Flushing the TLB is a part of some critical sections however the . Howeve the issue with our method was that we disabled and enabled interrupts
+By doing this, we disabled the interrupts in some critical sections, causing some paging issues. Fixed by removing cli and sti in flush TLB
+
+-cursor flashing around
+Cursor flashed around because it was being set on printf which would occur in non shown terminals. Fixed by only setting the cursor when the active
+terminal is the shown terminal
+
+-fish and pingpong slower than expected
+found out that setting rtc frequency to 1024Hz is unstable, and results in a slightly slower pingpong
+fixed by restricting the upper bound frequency of RTC to 512Hz instead.
